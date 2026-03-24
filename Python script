@@ -1,0 +1,332 @@
+import os
+import csv
+import sys
+import requests
+import base64
+from PIL import Image
+from io import BytesIO
+import logging
+from urllib.parse import urlparse
+from datetime import datetime
+
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+class ImageResizer:
+    def __init__(self, target_size=(600, 600)):
+        self.target_size = target_size
+        self.output_dir = 'resized_images'
+        self.supported_formats = {'.jpg', '.jpeg', '.png', '.webp'}
+
+        # Configuration GitHub
+        self.github_token = os.environ.get('GITHUB_TOKEN')
+        if not self.github_token:
+            raise ValueError("La clé API GitHub (GITHUB_TOKEN) n'est pas configurée dans les variables d'environnement")
+
+        # Configuration du dépôt GitHub
+        self.repo_owner = 'Thierrydel69'
+        self.repo_name = 'images-resized'
+        self.branch = 'main'
+
+        # Création du dossier de sortie s'il n'existe pas
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+
+        # Vérification initiale de l'authentification GitHub
+        self.verify_github_auth()
+
+    def verify_github_auth(self):
+        """
+        Vérifie si l'authentification GitHub fonctionne
+        """
+        try:
+            headers = {
+                'Authorization': f'token {self.github_token}',
+                'Accept': 'application/vnd.github.v3+json'
+            }
+            response = requests.get('https://api.github.com/user', headers=headers)
+            if response.status_code == 401:
+                logger.error("Authentification GitHub échouée. Vérifiez votre token.")
+                logger.error(f"Détails: {response.json().get('message', 'Pas de message disponible')}")
+                raise ValueError("Token GitHub invalide")
+            response.raise_for_status()
+            logger.info("Authentification GitHub réussie")
+        except Exception as e:
+            logger.error(f"Erreur lors de la vérification de l'authentification GitHub: {str(e)}")
+            raise
+
+    def verify_github_repository(self):
+        """
+        Vérifie si le dépôt GitHub existe et est accessible
+        Le crée si nécessaire
+        """
+        try:
+            headers = {
+                'Authorization': f'token {self.github_token}',
+                'Accept': 'application/vnd.github.v3+json'
+            }
+
+            # Vérification de l'existence du dépôt
+            api_url = f"https://api.github.com/repos/{self.repo_owner}/{self.repo_name}"
+            response = requests.get(api_url, headers=headers)
+
+            if response.status_code == 404:
+                # Création du dépôt s'il n'existe pas
+                create_url = "https://api.github.com/user/repos"
+                create_data = {
+                    "name": self.repo_name,
+                    "private": False,
+                    "auto_init": True
+                }
+                response = requests.post(create_url, json=create_data, headers=headers)
+                response.raise_for_status()
+                logger.info(f"Dépôt {self.repo_owner}/{self.repo_name} créé avec succès")
+                return True
+
+            response.raise_for_status()
+            logger.info(f"Dépôt {self.repo_owner}/{self.repo_name} vérifié avec succès")
+            return True
+
+        except Exception as e:
+            logger.error(f"Erreur lors de la vérification/création du dépôt GitHub: {str(e)}")
+            if hasattr(e, 'response') and getattr(e, 'response') is not None:
+                logger.error(f"Détails de l'erreur: {getattr(e, 'response').text}")
+            return False
+
+    def upload_to_github(self, image_path):
+        """
+        Upload une image sur GitHub
+        """
+        try:
+            if not self.verify_github_repository():
+                raise ValueError(f"Le dépôt GitHub {self.repo_owner}/{self.repo_name} n'est pas accessible")
+
+            logger.info(f"Début de l'upload sur GitHub de: {image_path}")
+
+            # Lecture du fichier en base64
+            with open(image_path, 'rb') as f:
+                content = f.read()
+                content_b64 = base64.b64encode(content).decode('utf-8')
+
+            # Préparation des données pour l'API GitHub
+            filename = os.path.basename(image_path)
+            github_path = f"{self.output_dir}/{filename}"
+
+            headers = {
+                'Authorization': f'token {self.github_token}',
+                'Accept': 'application/vnd.github.v3+json'
+            }
+
+            api_url = f"https://api.github.com/repos/{self.repo_owner}/{self.repo_name}/contents/{github_path}"
+
+            data = {
+                'message': f'Upload image: {filename}',
+                'content': content_b64,
+                'branch': self.branch
+            }
+
+            response = requests.put(api_url, json=data, headers=headers)
+            response.raise_for_status()
+
+            # Construction de l'URL raw de l'image
+            raw_url = f"https://raw.githubusercontent.com/{self.repo_owner}/{self.repo_name}/{self.branch}/{github_path}"
+            logger.info(f"Image uploadée avec succès. URL: {raw_url}")
+
+            return raw_url
+
+        except Exception as e:
+            logger.error(f"Erreur lors de l'upload sur GitHub: {str(e)}")
+            return None
+
+    def is_valid_image_url(self, url):
+        """
+        Vérifie si l'URL pointe vers une image supportée
+        """
+        try:
+            parsed = urlparse(url)
+            ext = os.path.splitext(parsed.path)[1].lower()
+            if ext:
+                return ext in self.supported_formats
+            return True
+        except Exception:
+            return False
+
+    def download_image(self, url):
+        """
+        Télécharge une image depuis une URL
+        """
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            content_type = response.headers.get('content-type', '')
+            if not any(fmt in content_type.lower() for fmt in ['image/jpeg', 'image/png', 'image/webp']):
+                logger.error(f"Le type de contenu '{content_type}' n'est pas supporté pour {url}")
+                return None
+
+            return Image.open(BytesIO(response.content))
+        except Exception as e:
+            logger.error(f"Erreur lors du téléchargement de {url}: {str(e)}")
+            return None
+
+    def resize_image_with_padding(self, image):
+        """
+        Redimensionne une image en conservant son ratio et ajoute des marges blanches
+        Préserve la qualité maximale et garantit un fond blanc
+        """
+        # Force la conversion en RGBA d'abord pour bien gérer la transparence
+        original_mode = image.mode
+        
+        # Conversion en RGBA pour gérer tous les cas de transparence
+        if image.mode != 'RGBA':
+            if image.mode == 'P' and 'transparency' in image.info:
+                image = image.convert('RGBA')
+            else:
+                image = image.convert('RGBA')
+        
+        # Création d'un fond blanc de la même taille que l'image originale
+        white_background = Image.new('RGBA', image.size, (255, 255, 255, 255))
+        
+        # Composition de l'image sur le fond blanc
+        composite_image = Image.alpha_composite(white_background, image)
+        
+        # Conversion finale en RGB (fond blanc garanti)
+        rgb_image = composite_image.convert('RGB')
+        
+        # Calcul du ratio pour le redimensionnement
+        target_width, target_height = self.target_size
+        ratio = min(target_width / rgb_image.width, target_height / rgb_image.height)
+
+        # Nouvelles dimensions en gardant le ratio
+        new_width = int(rgb_image.width * ratio)
+        new_height = int(rgb_image.height * ratio)
+
+        # Redimensionnement avec la meilleure qualité possible
+        resized = rgb_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Création du canvas final 600x600 avec fond blanc
+        final_image = Image.new('RGB', self.target_size, (255, 255, 255))
+
+        # Centrage de l'image redimensionnée
+        offset_x = (target_width - new_width) // 2
+        offset_y = (target_height - new_height) // 2
+
+        final_image.paste(resized, (offset_x, offset_y))
+        return final_image
+
+    def save_image(self, image, original_url):
+        """
+        Sauvegarde une image redimensionnée et retourne son URL publique
+        """
+        try:
+            # Génération du nom de fichier avec timestamp
+            base_name = os.path.basename(urlparse(original_url).path)
+            if not base_name or '.' not in base_name:
+                base_name = 'image.webp'
+            
+            # Conserver l'extension WebP pour la qualité optimale
+            name_without_ext = os.path.splitext(base_name)[0]
+            filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{name_without_ext}.webp"
+
+            output_path = os.path.join(self.output_dir, filename)
+            logger.info(f"Sauvegarde de l'image redimensionnée: {output_path}")
+
+            # S'assurer que l'image est en mode RGB
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+
+            # Sauvegarde en WebP avec les paramètres de qualité maximale
+            image.save(output_path, 'WEBP', 
+                      quality=100,           # Qualité maximale
+                      method=6,             # Méthode de compression la plus lente mais meilleure qualité
+                      lossless=False,       # Compression avec perte mais haute qualité
+                      exact=True)           # Plus précis pour les couleurs
+            
+            logger.info(f"Image sauvegardée localement: {output_path}")
+
+            # Upload sur GitHub et récupération de l'URL publique
+            public_url = self.upload_to_github(output_path)
+            if public_url:
+                logger.info(f"URL publique obtenue: {public_url}")
+                return public_url
+            else:
+                logger.error("Échec de l'upload sur GitHub")
+                return None
+
+        except Exception as e:
+            logger.error(f"Erreur lors de la sauvegarde: {str(e)}")
+            return None
+
+    def process_csv(self, input_csv_path):
+        """
+        Traite un fichier CSV contenant des URLs d'images
+        """
+        output_csv_path = f"processed_{os.path.basename(input_csv_path)}"
+        processed_rows = []
+
+        try:
+            with open(input_csv_path, 'r', newline='', encoding='utf-8-sig') as csvfile:  # Changed encoding to handle BOM
+                reader = csv.DictReader(csvfile)
+                fieldnames = ['image_url', 'resized_image_url']  # Explicitly set fieldnames
+
+                for row in reader:
+                    url = row.get('image_url', '').strip()  # Added strip() to remove whitespace
+                    if not url:
+                        logger.warning(f"URL vide trouvée dans le CSV")
+                        processed_rows.append({'image_url': '', 'resized_image_url': ''})
+                        continue
+
+                    if not self.is_valid_image_url(url):
+                        logger.warning(f"URL invalide ou non supportée: {url}")
+                        processed_rows.append({'image_url': url, 'resized_image_url': ''})
+                        continue
+
+                    logger.info(f"Traitement de l'image: {url}")
+                    image = self.download_image(url)
+                    if image:
+                        resized_image = self.resize_image_with_padding(image)
+                        public_url = self.save_image(resized_image, url)
+                        processed_rows.append({
+                            'image_url': url,
+                            'resized_image_url': public_url if public_url else ''
+                        })
+                    else:
+                        processed_rows.append({'image_url': url, 'resized_image_url': ''})
+
+            # Écriture du fichier CSV de sortie
+            with open(output_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(processed_rows)
+
+            logger.info(f"Traitement terminé. Fichier de sortie: {output_csv_path}")
+
+        except Exception as e:
+            logger.error(f"Erreur lors du traitement du CSV: {str(e)}")
+            raise
+
+def main():
+    try:
+        if len(sys.argv) != 2:
+            logger.error("Usage: python image_resizer.py <chemin_du_fichier_csv>")
+            return
+
+        input_csv = sys.argv[1]
+        if not os.path.exists(input_csv):
+            logger.error("Le fichier spécifié n'existe pas.")
+            return
+
+        resizer = ImageResizer()
+        resizer.process_csv(input_csv)
+
+    except KeyboardInterrupt:
+        logger.info("Opération annulée par l'utilisateur.")
+    except Exception as e:
+        logger.error(f"Une erreur est survenue: {str(e)}")
+
+if __name__ == "__main__":
+    main()
