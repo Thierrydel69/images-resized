@@ -1,36 +1,36 @@
-# Image Resizer - Redimensionnement automatique d'images
+# Image Resizer - Automatic Image Resizing Tool
 
-Un outil Python qui télécharge des images depuis des URLs, les redimensionne en **600x600 pixels** avec un fond blanc, et les héberge automatiquement sur GitHub.
-
----
-
-## Fonctionnement
-
-1. Vous ajoutez des URLs d'images dans le fichier `images.csv`
-2. Vous lancez le script
-3. Chaque image est téléchargée, redimensionnée et uploadée sur GitHub
-4. Les nouvelles URLs publiques sont enregistrées dans `processed_images.csv`
+A Python tool that downloads images from URLs, resizes them to **600x600 pixels** with a white background, and automatically hosts them on GitHub.
 
 ---
 
-## Caractéristiques
+## How It Works
 
-- Redimensionnement en **600x600 pixels** avec les proportions d'origine conservées
-- Fond blanc automatique (même pour les images avec transparence PNG)
-- Format de sortie **WebP** (qualité maximale, optimisé pour le web)
-- Hébergement gratuit via **GitHub** (URLs publiques directes)
-- Evite de retraiter les images déjà présentes dans `processed_images.csv`
+1. Add image URLs to the `images.csv` file
+2. Run the script
+3. Each image is downloaded, resized, and uploaded to GitHub
+4. The new public URLs are saved in `processed_images.csv`
+
+---
+
+## Features
+
+- Resizes images to **600x600 pixels** while preserving the original aspect ratio
+- Automatic white background (including transparent PNG images)
+- Output format: **WebP** (maximum quality, optimized for the web)
+- Free hosting via **GitHub** (direct public URLs)
+- Skips images already present in `processed_images.csv`
 
 ---
 
 ## Installation
 
-### Prérequis
+### Requirements
 
 - Python 3.x
-- Un compte GitHub avec un **Personal Access Token** (scope `repo`)
+- A GitHub account with a **Personal Access Token** (scope: `repo`)
 
-### Dépendances Python
+### Python Dependencies
 
 ```bash
 pip install requests Pillow
@@ -38,17 +38,17 @@ pip install requests Pillow
 
 ### Configuration
 
-Créez une variable d'environnement avec votre token GitHub :
+Set your GitHub token as an environment variable:
 
 ```bash
-export GITHUB_TOKEN=votre_token_github
+export GITHUB_TOKEN=your_github_token
 ```
 
 ---
 
-## Utilisation
+## Usage
 
-### 1. Préparez votre fichier `images.csv`
+### 1. Prepare your `images.csv` file
 
 ```csv
 image_url
@@ -56,18 +56,18 @@ https://example.com/image1.jpg
 https://example.com/image2.png
 ```
 
-> Si l'URL contient une virgule dans le nom du fichier, mettez-la entre guillemets :
-> `"https://example.com/image,nom.webp"`
+> If the URL contains a comma in the filename, wrap it in quotes:
+> `"https://example.com/image,name.webp"`
 
-### 2. Lancez le script
+### 2. Run the script
 
 ```bash
 python image_resizer.py images.csv
 ```
 
-### 3. Récupérez les URLs
+### 3. Retrieve the URLs
 
-Les URLs des images redimensionnées sont disponibles dans `processed_images.csv` :
+Resized image URLs are available in `processed_images.csv`:
 
 ```csv
 image_url,resized_image_url
@@ -76,44 +76,44 @@ https://example.com/image1.jpg,https://raw.githubusercontent.com/...
 
 ---
 
-## Structure des fichiers
+## File Structure
 
 ```
 /
-├── image_resizer.py        # Script principal
-├── check_urls.py           # Vérifie l'accessibilité des URLs générées
-├── cleanup_csv.py          # Nettoie les doublons et entrées invalides du CSV
-├── verify_images.py        # Vérifie les dimensions et le fond des images
-├── push_to_github.py       # Exporte le code source vers GitHub
-├── images.csv              # URLs sources à traiter
-├── processed_images.csv    # Résultat : URLs originales + URLs redimensionnées
-└── resized_images/         # Cache local des images traitées
+├── image_resizer.py        # Main script
+├── check_urls.py           # Checks accessibility of generated URLs
+├── cleanup_csv.py          # Removes duplicates and invalid CSV entries
+├── verify_images.py        # Verifies image dimensions and background color
+├── push_to_github.py       # Exports source code to GitHub
+├── images.csv              # Source URLs to process
+├── processed_images.csv    # Output: original URLs + resized URLs
+└── resized_images/         # Local cache of processed images
 ```
 
 ---
 
-## Outils complémentaires
+## Additional Tools
 
 | Script | Description |
 |--------|-------------|
-| `check_urls.py` | Vérifie que toutes les URLs dans `processed_images.csv` sont accessibles |
-| `cleanup_csv.py` | Supprime les doublons et les lignes sans URL redimensionnée |
-| `verify_images.py` | Contrôle les dimensions (600x600) et la couleur du fond (blanc pur) |
-| `push_to_github.py` | Exporte les fichiers du projet vers votre dépôt GitHub |
+| `check_urls.py` | Verifies that all URLs in `processed_images.csv` are accessible |
+| `cleanup_csv.py` | Removes duplicates and rows with missing resized URLs |
+| `verify_images.py` | Checks dimensions (600x600) and background color (pure white) |
+| `push_to_github.py` | Pushes project files to your GitHub repository |
 
 ---
 
-## Technologies utilisées
+## Technologies
 
-- **Python** — langage principal
-- **Pillow (PIL)** — traitement et redimensionnement des images
-- **Requests** — téléchargement des images et appels à l'API GitHub
-- **GitHub API v3** — hébergement des images redimensionnées
+- **Python** — core language
+- **Pillow (PIL)** — image processing and resizing
+- **Requests** — image downloading and GitHub API calls
+- **GitHub API v3** — hosting for resized images
 
 ---
 
-## Limites connues
+## Known Limitations
 
-- L'API GitHub a des limites de débit (rate limits) pour les gros volumes d'images
-- Certains sites bloquent le téléchargement automatique (erreurs SSL ou accès refusé)
-- Pour les fichiers CSV avec des virgules dans les noms de fichiers, pensez à entourer l'URL de guillemets
+- GitHub API has rate limits for large volumes of images
+- Some websites block automatic downloads (SSL errors or access denied)
+- For CSV files with commas in filenames, wrap the URL in double quotes
